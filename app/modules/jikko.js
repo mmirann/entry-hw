@@ -13,9 +13,10 @@ function Module() {
         READ_BLUETOOTH: 9,
         WRITE_BLUETOOTH: 10,
         LCD: 11,
-        RGBLED: 12,
-        DCMOTOR: 13,
-        OLED: 14,
+        LCDCLEAR: 12,
+        RGBLED: 13,
+        DCMOTOR: 14,
+        OLED: 15,
     };
 
     this.actionTypes = {
@@ -409,6 +410,11 @@ Module.prototype.makeOutputBuffer = function (device, port, data) {
             break;
         }
         case this.sensorTypes.WRITE_BLUETOOTH: {
+            break;
+        }
+        case this.sensorTypes.LCDCLEAR: {
+            buffer = new Buffer([255, 85, 4, sensorIdx, this.actionTypes.MODUEL, device, port]);
+            buffer = Buffer.concat([buffer, dummy]);
             break;
         }
         case this.sensorTypes.LCD: {

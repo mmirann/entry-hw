@@ -28,9 +28,10 @@
 #define READ_BLUETOOTH 9
 #define WRITE_BLUETOOTH 10
 #define LCD 11
-#define RGBLED 12
-#define DCMOTOR 13
-#define OLED 14
+#define LCDCLEAR 12
+#define RGBLED 13
+#define DCMOTOR 14
+#define OLED 15
 
 // State Constant
 #define GET 1
@@ -75,8 +76,6 @@ int softSerialTX = 3;
 unsigned long prev_time_BT = 0;
 
 // LCD
-String lastLcdDataLine0;
-String lastLcdDataLine1;
 
 // Buffer
 char buffer[52];
@@ -406,8 +405,14 @@ void runModule(int device)
     unsigned char pin = port;
     switch (device)
     {
+    case LCDCLEAR:
+    {
+        lcd.clear();
+    }
+    break;
     case LCD:
     {
+        lcd.clear();
         int line = readBuffer(7);
         int col = readBuffer(9);
         String makeLcdString;
