@@ -10,9 +10,14 @@
    Copyright (C) 2013 - 2016 Maker Works Technology Co., Ltd. All right reserved.
  **********************************************************************************/
 
+//#include <DHT.h>
+#include <dht.h>
 #include <Servo.h> //헤더 호출
 #include <LiquidCrystal_I2C.h>
 #include <SoftwareSerial.h>
+#include <Adafruit_NeoPixel.h>
+#include <LedControl.h>
+
 //#include "U8glib.h"
 
 // Module Constant //핀설정
@@ -32,6 +37,21 @@
 #define RGBLED 13
 #define DCMOTOR 14
 #define OLED 15
+#define PIR 16
+#define LCDINIT 17
+#define DHTHUMI 18
+#define DHTTEMP 19
+//#define NEOPIXEL 20
+#define NEOPIXELINIT 20
+#define NEOPIXELBRIGHT 21
+#define NEOPIXEL 22
+#define NEOPIXELALL 23
+#define NEOPIXELCLEAR 24
+#define DOTMATRIXINIT 25
+#define DOTMATRIXBRIGHT 26
+#define DOTMATRIX 27
+#define DOTMATRIXCLEAR 28
+#define RESET_ 33
 
 // State Constant
 #define GET 1
@@ -41,8 +61,12 @@
 
 Servo servos[8];
 Servo sv;
+
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(4, 7, NEO_GRB + NEO_KHZ800);
 LiquidCrystal_I2C lcd(0x27, 16, 2);
+dht myDHT11;
 SoftwareSerial softSerial(2, 3);
+
 //U8GLIB_SSD1306_128X64 oled(U8G_I2C_OPT_NONE);
 
 // val Union        //??
@@ -68,7 +92,15 @@ int servo_pins[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 float lastUltrasonic = 0;
 int trigPin = 13;
 int echoPin = 12;
+int dinPin = 12;
+int clkPin = 11;
+int csPin = 10;
+int dotBright = 8;
 
+bool dotFlag = false;
+
+int dhtPin = 0;
+int dhtMode = 0;
 // bluetooth                //블루투스
 String makeBtString;
 int softSerialRX = 2;
@@ -91,13 +123,24 @@ uint8_t command_index = 0;
 boolean isStart = false;
 boolean isUltrasonic = false;
 boolean isBluetooth = false;
+boolean isDHThumi = false;
+boolean isDHTtemp = false;
+
 // End Public Value
+
+void _delay(float seconds)
+{
+    long endTime = millis() + seconds * 1000;
+    while (millis() < endTime)
+        ;
+}
 
 void setup()
 {                           //초기화
     Serial.begin(115200);   //시리얼 115200
     softSerial.begin(9600); //블루투스 9600
     initPorts();
+    initNeo();
     initLCD();
     delay(200);
 }
@@ -109,6 +152,12 @@ void initPorts()
         pinMode(pinNumber, OUTPUT);
         digitalWrite(pinNumber, LOW);
     }
+}
+
+void initNeo()
+{ // 네오픽셀 초기화
+    strip.begin();
+    strip.show();
 }
 
 void initLCD()
@@ -235,6 +284,23 @@ void parseData()
                 }
             }
         }
+        else if (device == DHTHUMI)
+        {
+            isDHThumi = true;
+            //setDHTTEMPMode(true);
+            dhtPin = readBuffer(6);
+            //myDHT11.read11(dhtPin);
+            digitals[port] = 1;
+        }
+        else if (device == DHTTEMP)
+        {
+            isDHTtemp = true;
+
+            //setDHTHUMIMode(true);
+            dhtPin = readBuffer(6);
+            //  myDHT11.read11(dhtPin);
+            digitals[port] = 1;
+        }
         else if (device == READ_BLUETOOTH)
         {
             softSerial.begin(9600);
@@ -305,8 +371,25 @@ void runSet(int device)
     {
         setUltrasonicMode(false);
     }
+
     switch (device)
     {
+    case RESET_:
+    {
+        lcd.init();
+        lcd.clear();
+
+        LedControl *lcjikko = new LedControl(dinPin, clkPin, csPin, 1);
+        lcjikko->clearDisplay(0);
+        delete lcjikko;
+
+        strip.setPixelColor(0, 0, 0, 0);
+        strip.setPixelColor(1, 0, 0, 0);
+        strip.setPixelColor(2, 0, 0, 0);
+        strip.setPixelColor(3, 0, 0, 0);
+        strip.show();
+    }
+    break;
     case DIGITAL:
     {
         setPortWritable(pin);
@@ -336,23 +419,167 @@ void runSet(int device)
         }
     }
     break;
+        // case DHTINIT:
+        // {
+        //     dhtPin = readBuffer(6);
+        //     digitals[dhtPin] = 1;
+        // }
+        // break;
+    case NEOPIXELINIT:
+    {
+        setPortWritable(pin);
+        strip = Adafruit_NeoPixel(readBuffer(7), readBuffer(6), NEO_GRB + NEO_KHZ800);
+        strip.begin();
+        strip.setPixelColor(0, 0, 0, 0);
+        strip.setPixelColor(1, 0, 0, 0);
+        strip.setPixelColor(2, 0, 0, 0);
+        strip.setPixelColor(3, 0, 0, 0);
+        strip.show();
+        //delay(1);
+    }
+    break;
+    case NEOPIXELBRIGHT:
+    {
+        //setPortWritable(pin);
+        int bright = readBuffer(7);
+
+        strip.setBrightness(bright);
+        //delay(10);
+    }
+    break;
+    case NEOPIXEL:
+    {
+        //setPortWritable(pin);
+        //strip.begin();
+
+        int num = readBuffer(7);
+        int r = readBuffer(9);
+        int g = readBuffer(11);
+        int b = readBuffer(13);
+
+        // if (num == 4)
+        // {
+        //     setPortWritable(pin);
+        //     //strip.begin();
+        //     strip.setPixelColor(0, 0, 0, 0);
+        //     strip.setPixelColor(1, 0, 0, 0);
+        //     strip.setPixelColor(2, 0, 0, 0);
+        //     strip.setPixelColor(3, 0, 0, 0);
+        //     strip.show();
+        //     delay(50);
+        //     break;
+        // }
+        // else
+        // {
+        strip.setPixelColor(num, r, g, b);
+        strip.show();
+        // }
+    }
+    break;
+    case NEOPIXELALL:
+    {
+        //setPortWritable(pin);
+        //strip.begin();
+
+        int r = readBuffer(7);
+        int g = readBuffer(9);
+        int b = readBuffer(11);
+
+        strip.setPixelColor(0, r, g, b);
+        strip.setPixelColor(1, r, g, b);
+        strip.setPixelColor(2, r, g, b);
+        strip.setPixelColor(3, r, g, b);
+
+        strip.show();
+        //delay(50);
+    }
+    break;
+    case NEOPIXELCLEAR:
+    {
+        setPortWritable(pin);
+        //strip.begin();
+        strip.setPixelColor(0, 0, 0, 0);
+        strip.setPixelColor(1, 0, 0, 0);
+        strip.setPixelColor(2, 0, 0, 0);
+        strip.setPixelColor(3, 0, 0, 0);
+        strip.show();
+        //delay(1);
+    }
+    break;
+
+    case DOTMATRIXINIT:
+    {
+        dinPin = readBuffer(7);
+        clkPin = readBuffer(9);
+        csPin = readBuffer(11);
+
+        // lcjikko.shutdown(0, true);
+    }
+    break;
+    case DOTMATRIXCLEAR:
+    {
+        LedControl *lcjikko = new LedControl(dinPin, clkPin, csPin, 1);
+        lcjikko->clearDisplay(0);
+        delete lcjikko;
+    }
+    break;
+    case DOTMATRIXBRIGHT:
+    {
+        // setPortWritable(pin);
+        dotBright = readBuffer(7);
+        // lcjikko.setIntensity(0, bright);
+
+        // lcd.setCursor(0, 0);
+        // lcd.print(pin);
+        // lcd.setCursor(0, 1);
+        // lcd.print(bright);
+    }
+    break;
+    case DOTMATRIX:
+    {
+        LedControl *lcjikko = new LedControl(dinPin, clkPin, csPin, 1);
+        lcjikko->shutdown(0, false);
+        lcjikko->setIntensity(0, dotBright);
+
+        byte m[8] = {
+            B10000001,
+            B11000011,
+            B10100101,
+            B10101001,
+            B10010001,
+            B10100101,
+            B11000011,
+            B10000001};
+        // initDot();
+
+        for (int row = 0; row < 8; row++)
+        {
+            lcjikko->setRow(0, row, m[row]);
+            // delay(25);
+        }
+        // delay(100);
+        //delay(5000);
+        delete lcjikko;
+    }
+    break;
+
     case SERVO_PIN:
     {
         setPortWritable(pin);
         int v = readBuffer(7);
         if (v >= 0 && v <= 180)
         {
-            byte rg[] = {TCCR1A, TCCR1B, OCR1A, TIMSK1};
-            delay(5);
+            //byte rg[] = {TCCR1A, TCCR1B, OCR1A, TIMSK1};
+            //delay(5);
             sv = servos[searchServoPin(pin)];
             sv.attach(pin);
             sv.write(v);
-            delay(100);
-            sv.detach();
-            TCCR1A = rg[0];
-            TCCR1B = rg[1];
-            TIMSK1 = rg[3];
-            OCR1A = rg[2];
+            //delay(100);
+            //sv.detach();
+            //TCCR1A = rg[0];
+            //TCCR1B = rg[1];
+            //TIMSK1 = rg[3];
+            //OCR1A = rg[2];
         }
     }
     break;
@@ -405,6 +632,24 @@ void runModule(int device)
     unsigned char pin = port;
     switch (device)
     {
+    case LCDINIT:
+    {
+        //주소, column, line 순서
+        if (readBuffer(7) == 0) //0x27
+        {
+            lcd = LiquidCrystal_I2C(0x27, readBuffer(9), readBuffer(11));
+        }
+        else
+        {
+            lcd = LiquidCrystal_I2C(0x3f, readBuffer(9), readBuffer(11));
+        }
+        // lcd.init();
+        // lcd.backlight();
+        // lcd.clear();
+        initLCD();
+    }
+    break;
+
     case LCDCLEAR:
     {
         lcd.clear();
@@ -412,39 +657,34 @@ void runModule(int device)
     break;
     case LCD:
     {
-        lcd.clear();
-        int line = readBuffer(7);
-        int col = readBuffer(9);
-        String makeLcdString;
-        int arrayNum = 11;
-        lcd.setCursor(col, line);
-        for (int i = 0; i < 17; i++)
-        {
-            char lcdRead = readBuffer(arrayNum);
-            if (lcdRead > 0)
-                makeLcdString += lcdRead;
-            arrayNum += 2;
-        }
-        lcd.print(makeLcdString);
-        // if (makeLcdString.equals(lastLcdDataLine0) == false || makeLcdString.equals(lastLcdDataLine1) == false)
+        //  lcd.clear();
+        // int line = readBuffer(7);
+        // int col = readBuffer(9);
+        // //String makeLcdString;
+
+        int row = readBuffer(7);
+        // if (row == 3)
         // {
-        //     lcd.setCursor(0, pin);
-        //     lcd.print("                ");
+        //     lcd.init();
+        //     lcd.clear();
+        //     break;
         // }
-        // lcd.setCursor(0, pin);
-        // if (readBuffer(7) == 1)
+        int column = readBuffer(9);
+        int len = readBuffer(11);
+        String txt = readString(len, 13);
+        // int arrayNum = 11;
+        // lcd.setCursor(col, line);
+        // for (int i = 0; i < 17; i++)
         // {
-        //     int lcdInt = readShort(9);
-        //     lcd.print(lcdInt);
+        //     char lcdRead = readBuffer(arrayNum);
+        //     if (lcdRead > 0)
+        //         makeLcdString += lcdRead;
+        //     arrayNum += 2;
         // }
-        // else
-        // {
-        //     lcd.print(makeLcdString);
-        // }
-        // if (pin == 0)
-        //     lastLcdDataLine0 = makeLcdString;
-        // else if (pin == 1)
-        //     lastLcdDataLine1 = makeLcdString;
+        // lcd.print(makeLcdString);
+
+        lcd.setCursor(column, row);
+        lcd.print(txt);
     }
     break;
         //    case OLED: {
@@ -520,6 +760,16 @@ void sendPinValues()
         callOK();
     }
 
+    if (isDHThumi)
+    {
+        sendDHT();
+        callOK();
+    }
+    if (isDHTtemp)
+    {
+        sendDHT();
+        callOK();
+    }
     if (isBluetooth && millis() - prev_time_BT < 300)
     {
         sendBluetooth();
@@ -547,6 +797,31 @@ void setBluetoothMode(boolean mode)
     if (!mode)
     {
         makeBtString = "";
+    }
+}
+
+void sendDHT()
+{
+    myDHT11.read11(dhtPin);
+    float fTempC = myDHT11.temperature;
+    float fHumid = myDHT11.humidity;
+
+    delay(50);
+    if (isDHTtemp)
+    {
+        writeHead();
+        sendFloat(fTempC);
+        writeSerial(DHTTEMP);
+        writeEnd();
+    }
+
+    if (isDHThumi)
+
+    {
+        writeHead();
+        sendFloat(fHumid);
+        writeSerial(DHTHUMI);
+        writeEnd();
     }
 }
 
@@ -693,6 +968,17 @@ long readLong(int idx)
     val.byteVal[2] = readBuffer(idx + 2);
     val.byteVal[3] = readBuffer(idx + 3);
     return val.longVal;
+}
+String readString(int len, int startIdx)
+{
+    String str = "";
+
+    for (int i = startIdx; i < (startIdx + len); i++)
+    {
+        str += (char)readBuffer(i);
+    }
+
+    return str;
 }
 
 int searchServoPin(int pin)
@@ -1007,163 +1293,3 @@ void rgbLedVer1(int pin)
     } // if(8 <= pin && pin <= 13)
     sei();
 }
-
-/*
-// 대장장이 주니어 3, 8, 9 번핀 작동 함수
-void rgbLedVer2(int pin) {
-  byte color[3] = {0};
-  byte colorBuff[3][8] = {0};
-  setPortWritable(pin);
-  color[0] = readBuffer(9);   // green
-  color[1] = readBuffer(7);   // red
-  color[2] = readBuffer(11);  // blue
-  if (color[0] > 254) color[0] = 254; // 255 일 경우 오동작이 자주 됨
-  if (color[1] > 254) color[1] = 254; // 255 일 경우 오동작이 자주 됨
-  if (color[2] > 254) color[2] = 254; // 255 일 경우 오동작이 자주 됨
-  for (int i = 0; i < 3; i++) {
-    for (int j = 7; j >= 0; j--) {
-      colorBuff[i][j] = (color[i] >> j ) & 0x01;
-    }
-  }
-  if (2 <= pin && pin <= 7) {
-    if (pin == 3) PORTD &= ~B00001000;
-    for (register unsigned char i = 0; i < 85; i++) // 80 us
-    {
-      asm volatile(" PUSH R0 ");
-      asm volatile(" POP R0 ");
-      asm volatile(" PUSH R0 ");
-      asm volatile(" POP R0 ");
-      asm volatile(" PUSH R0 ");
-      asm volatile(" POP R0 ");
-    }
-    for (int i = 0; i < 3; i++) {
-      for (int j = 7; j >= 0; j--) {
-        if (colorBuff[i][j] == 1) {
-          if (pin == 3) PORTD |= B00001000;
-          for (register unsigned char i = 0; i < 27; i++) // 25 us
-          {
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-          }
-          if (pin == 3) PORTD &= ~B00001000;
-          for (register unsigned char i = 0; i < 26; i++) // 25 us
-          {
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-          }
-        }
-        else {
-          if (pin == 3) PORTD |= B00001000;
-          for (register unsigned char i = 0; i < 16; i++) // 15 us
-          {
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-          }
-          if (pin == 3) PORTD &= ~B00001000;
-          for (register unsigned char i = 0; i < 15; i++) // 15 us
-          {
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-          }
-        }
-      }
-    }
-    if (pin == 3) PORTD |= B00001000;
-  } // if(2 <= pin && pin <= 7)
-
-  else if (8 <= pin && pin <= 13) {
-    if (pin == 8) PORTB &= ~B00000001;
-    else if (pin == 9) PORTB &= ~B00000010;
-    for (register unsigned char i = 0; i < 85; i++)
-    {
-      asm volatile(" PUSH R0 ");
-      asm volatile(" POP R0 ");
-      asm volatile(" PUSH R0 ");
-      asm volatile(" POP R0 ");
-      asm volatile(" PUSH R0 ");
-      asm volatile(" POP R0 ");
-    }
-    for (int i = 0; i < 3; i++) {
-      for (int j = 7; j >= 0; j--) {
-        if (colorBuff[i][j] == 1) {
-          if (pin == 8) PORTB |= B00000001;
-          else if (pin == 9) PORTB |= B00000010;
-          for (register unsigned char i = 0; i < 27; i++)
-          {
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-          }
-          if (pin == 8) PORTB &= ~B00000001;
-          else if (pin == 9) PORTB &= ~B00000010;
-          for (register unsigned char i = 0; i < 26; i++)
-          {
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-          }
-        }
-        else {
-          if (pin == 8) PORTB |= B00000001;
-          else if (pin == 9) PORTB |= B00000010;
-          for (register unsigned char i = 0; i < 16; i++)
-          {
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-          }
-          if (pin == 8) PORTB &= ~B00000001;
-          else if (pin == 9) PORTB &= ~B00000010;
-          for (register unsigned char i = 0; i < 15; i++)
-          {
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-            asm volatile(" PUSH R0 ");
-            asm volatile(" POP R0 ");
-          }
-        }
-      }
-    }
-    if (pin == 8) PORTB |= B00000001;
-    else if (pin == 9) PORTB |= B00000010;
-  } // if(8 <= pin && pin <= 13)
-}
-*/
-/**********************************************************************************
-   The following software may be included in this software : orion_firmware.ino
-   from http://www.makeblock.cc/
-   This software contains the following license and notice below:
-   CC-BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
-   Author : Ander, Mark Yan
-   Updated : Ander, Mark Yan
-   Date : 01/09/2016
-   Description : Firmware for Makeblock Electronic modules with Scratch.
-   Copyright (C) 2013 - 2016 Maker Works Technology Co., Ltd. All right reserved.
- **********************************************************************************/
